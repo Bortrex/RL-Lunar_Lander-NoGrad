@@ -19,7 +19,6 @@ device = torch.device("cuda" if USE_CUDA else "cpu")
 
 SEED = 1234
 
-# GAME = sys.argv[1] # lunar lander continuous
 GAME = "LunarLander-v2"
 
 
@@ -35,7 +34,7 @@ def environment_settings(name):
     print(f"Reward Range: {env.reward_range}")
     print(f"Reward Threshold: {spec.reward_threshold}")
 
-# Create the Gym environment. A good first environment is FrozenLake-v0
+# Create the Gym environment.
 environment_settings(GAME)
 env = gym.make(GAME, 
         continuous = True,)
@@ -116,10 +115,6 @@ SIGMA = 0.1             # Standard deviation for perturbing weights
 CHILD_EPIS = 5          # number of evals per child
 
 
-# np.random.seed(10)
-# for idx, SEED in enumerate(np.random.randint(1000, size=4), 0):
-
-#     print(f"\nSession: {idx}, Seed: {SEED}\n")
 
 # Setting seed
 rng = np.random.default_rng(SEED)  # generator
@@ -167,7 +162,6 @@ for gen in range(NUM_generations):
         params_mean = torch.mean(torch.stack(parent_params), dim=0)
         param.data.copy_(params_mean)
     
-    # best_reward_policy = evaluate(policy)
     single = single_eval(policy)
             
     if gen%4==0:
