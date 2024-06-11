@@ -1,4 +1,4 @@
-# DeepRL - Gradient-free optimization methods
+# DeepRL - Gradient-free optimization method
 ## Population method
 
 
