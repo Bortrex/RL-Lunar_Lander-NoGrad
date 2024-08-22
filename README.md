@@ -9,7 +9,7 @@ Population methods are a nice choice for complex optimization problems where tra
 
 ## Results
 
-The model stabilises after 80 episodes. 
+The model stabilises after 60 episodes. An episode is considered a solution if it scores at least 200 points.
 
 <img src="https://github.com/user-attachments/assets/3669ba23-f1b3-42e2-a984-0d3350d36e62" width="800" height="400">
 
