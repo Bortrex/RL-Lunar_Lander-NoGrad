@@ -16,6 +16,7 @@ Continuous Lunar Lander [Gym Documentation](https://gymnasium.farama.org/environ
 
 
 The environment is considered solved if the agent scores at least 200 points.
+
 The model stabilises after 60 iterations of the algorithm. 
 
 <img src="https://github.com/user-attachments/assets/3669ba23-f1b3-42e2-a984-0d3350d36e62" width="800" height="400">
