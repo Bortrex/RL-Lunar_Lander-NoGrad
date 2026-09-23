@@ -7,6 +7,23 @@ In RL, this means that they allow to improve a policy without having to compute 
 
 Population methods are a nice choice for complex optimization problems where traditional methods fail to perform adequately due to issues like non-differentiability, high dimensionality, or rugged search landscapes. 
 
+### Usage
+
+```bash
+python population_method.py
+python population_method.py --seed 5678
+python population_method.py --seed 5678 --device cuda
+```
+
+The default training seed is 1234 and the default device is CPU; CUDA is
+optional and requires an available CUDA device. The experiment uses continuous
+`LunarLander-v3` with a 500-step episode limit.
+
+Each generation, the current parent policy is evaluated without exploration
+noise on 5 fixed environment seeds, independent of the training seed. Each
+run writes `generation,reward` CSV data (generation and evaluation reward) to
+`results/population_method_seed-<seed>.csv`.
+
 ## Environment
 Continuous Lunar Lander v3 [Gym Documentation](https://gymnasium.farama.org/environments/box2d/lunar_lander/).
 

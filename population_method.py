@@ -152,12 +152,7 @@ def main(argv=None):
                 episode_seeds = rng.integers(
                     0, 2**31 - 1, size=CHILD_EPISODES
                 ).tolist()
-                # # Preserve usual RNG draws, resampling rare duplicates.
-                # for index in range(len(episode_seeds)):
-                #     while episode_seeds[index] in episode_seeds[:index]:
-                #         episode_seeds[index] = int(rng.integers(0, 2**31 - 1))
-
-                # All children share these distinct scenarios this generation.
+                # All children share the same seed set.
                 rewards = [
                     evaluate(child, env, episode_seeds, rng)
                     for child in population

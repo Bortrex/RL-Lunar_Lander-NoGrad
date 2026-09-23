@@ -108,7 +108,12 @@ def plot_learning_curves(results_dir="results", save_path=None, show=False):
                 label=f"{label} (n={count})")
         ax.fill_between(generations, mean - std, mean + std,
                         color=color, alpha=0.18, linewidth=0)
-    ax.set(xlabel="Generation / iteration", ylabel="Evaluation reward")
+
+    ax.axhline(y=200, color="red", alpha=0.3, linestyle="--", linewidth=1.25,
+               label="Reward threshold (200)")
+    ax.set_title("Evaluation learning curves", fontsize=14)
+    ax.set_xlabel("Generation / iteration", fontsize=12)
+    ax.set_ylabel("Evaluation reward", fontsize=12)
     ax.grid(alpha=0.2, linewidth=0.6)
     ax.set_axisbelow(True)
     ax.spines[["top", "right"]].set_visible(False)
