@@ -8,7 +8,7 @@ In RL, this means that they allow to improve a policy without having to compute 
 Population methods are a nice choice for complex optimization problems where traditional methods fail to perform adequately due to issues like non-differentiability, high dimensionality, or rugged search landscapes. 
 
 ## Environment
-Continuous Lunar Lander [Gym Documentation](https://gymnasium.farama.org/environments/box2d/lunar_lander/)
+Continuous Lunar Lander v3 [Gym Documentation](https://gymnasium.farama.org/environments/box2d/lunar_lander/).
 
 ## Results
 

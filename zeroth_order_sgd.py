@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import numpy as onp
 from jax import flatten_util
 
-from utils import Config, asHHMMSS, centered_ranks
+from utils import Config, format_elapsed_time, centered_ranks
 
 cfg = Config()
 env = gym.make(cfg.env_name
@@ -112,6 +112,6 @@ for it in range(1, cfg.max_iters + 1):
     sigma *= cfg.sigma_decay  # slow geometric decay (backup)
 
 print("\n[TRAINING FINISHED]")
-time_taken = asHHMMSS(time.time() - start_training)
+time_taken = format_elapsed_time(time.time() - start_training)
 print(f'[SESSION TRAINING TOOK {time_taken} ] \n')
 env.close()
