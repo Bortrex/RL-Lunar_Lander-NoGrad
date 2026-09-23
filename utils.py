@@ -23,7 +23,7 @@ class Config:
     beta: float = 0.4
 
 
-def as_HHMMSS(s):
+def format_elapsed_time(s):
     m = math.floor(s / 60)
     s -= m * 60
     h = math.floor(m / 60)

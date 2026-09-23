@@ -17,6 +17,8 @@ USE_CUDA = False
 device = torch.device("cuda" if USE_CUDA else "cpu")
 
 SEED = 1234
+EVAL_EPISODES = 5
+EVAL_SEEDS = [SEED + i for i in range(EVAL_EPISODES)]
 
 GAME = "LunarLander-v3"
 
@@ -65,15 +67,23 @@ class Policy(nn.Module):
         return self.net(x)
 
 @torch.no_grad()
-def evaluate(policy, episodes=10, random_state=None):
+def evaluate(policy, episode_seeds):
+    ''' Evaluate the policy over a number of episodes and return the smoothed reward. 
     
-    average_cumulative_reward = 0.0
-    for _ in range(episodes):
-        state, _  = env.reset(seed=random_state)
-        terminated = False
+        Returns: `smoothed_reward` 
+        
+        This funciton exponentially smooth the rollout returns (alpha=0.05).
+        Since the policy is fixed across these episodes, equal weighting would be a more
+        natural estimate of expected return. This smoothing rule is inherited from the
+        original course-project skeleton and is intentionally preserved.
+    '''
+    smoothed_reward = 0.0
+    for epi_seed in episode_seeds:
+        state, _  = env.reset(seed=epi_seed)
+        episode_over = False
         cumulative_reward = 0.0
 
-        while not terminated:
+        while not episode_over:
             sts_tensor = torch.FloatTensor(state).unsqueeze(0)            
             action = policy(sts_tensor).cpu().numpy().squeeze() 
             
@@ -83,37 +93,47 @@ def evaluate(policy, episodes=10, random_state=None):
             
             # Update statistics
             cumulative_reward += reward
+            episode_over = (terminated or truncated)
 
         # Per-episode statistics
-        average_cumulative_reward *= 0.95
-        average_cumulative_reward += 0.05 * cumulative_reward
-    
-    return average_cumulative_reward
+        # Exponentially smooth episode returns (alpha = 0.05).
+        smoothed_reward *= 0.95
+        smoothed_reward += 0.05 * cumulative_reward
+
+    return smoothed_reward
 
 @torch.no_grad()
-def single_eval(policy, random_state=None):
-    state, _  = env.reset(seed=random_state)
-    terminated = False
-    cumulative_reward = 0.0
+def evaluate_parent(policy, evaluation_seeds):
+    """
+    The parent policy is unchanged across evaluation episodes, so the arithmetic
+    mean gives each rollout equal weight when estimating its expected return.
+    """
+    episode_rewards = []
 
-    while not terminated:
-        sts_tensor = torch.FloatTensor(state).unsqueeze(0)        
-        action = policy(sts_tensor).cpu().numpy().squeeze() 
-        action = np.clip(action, -action_bound, action_bound )
-        state, reward, terminated, truncated, info = env.step(action)
-        
-        # Update statistics
-        cumulative_reward += reward
-    return cumulative_reward
+    for episode_seed in evaluation_seeds:
+        state, _ = env.reset(seed=episode_seed)
+        episode_over = False
+        cumulative_reward = 0.0
+
+        while not episode_over:
+            state_tensor = torch.FloatTensor(state).unsqueeze(0)
+            action = policy(state_tensor).cpu().numpy().squeeze()
+            action = np.clip(action, -action_bound, action_bound)
+
+            state, reward, terminated, truncated, _ = env.step(action)
+            cumulative_reward += reward
+            episode_over = terminated or truncated
+
+        episode_rewards.append(cumulative_reward)
+    return np.mean(episode_rewards)
 
 
 # Hyperparameters
 POP_SIZE = 40           # Population child size
-NUM_generations = 101   # Number of generations
-PARENT_frac = 0.25      # Fraction of top performers to keep
+NUM_GENERATIONS = 101   # Number of generations
+PARENT_FRAC = 0.25      # Fraction of top performers to keep
 SIGMA = 0.1             # Standard deviation for perturbing weights
 CHILD_EPIS = 5          # number of evals per child
-
 
 
 # Setting seed
@@ -125,56 +145,60 @@ if torch.cuda.is_available():
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-policy = Policy(env).to(device) # setting main agent
-# each child inits with random weights
-population = [Policy(env).to(device) for _ in range(POP_SIZE)]
+def main():
+
+    policy = Policy(env).to(device) # setting main agent
+    # each child inits with random weights
+    population = [Policy(env).to(device) for _ in range(POP_SIZE)]
 
 
-file = Path("dataPlots/").mkdir(parents=True, exist_ok=True)
-f = open(f"dataPlots/dataPopu-{SEED}.dat", "w")
-print("RETURN", f"population-{SEED}", file=f)
+    output_dir = Path("dataPlots/")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    f = open(f"dataPlots/dataPopu-{SEED}.dat", "w")
+    print("RETURN", f"population-{SEED}", file=f)
 
-for gen in range(NUM_generations):
+    for gen in range(NUM_GENERATIONS):
 
-    # random_state = rng.integers(0, 2**32 - 1, size=POP_SIZE)  # random seeds for each child
-    random_state = np.random.randint(0, 2**31 - 1, size=POP_SIZE).tolist()  # random seeds for each child error int64 need to be int32 for gymnasium
-    # evaluating childs
-    rewards = [evaluate(p, episodes=CHILD_EPIS, random_state=rs) 
-               for (p, rs) in zip(population, random_state)]
-    topK = int(PARENT_frac * POP_SIZE)
-    parent_indices = np.argsort(rewards)[-topK:]
-    parent_policies = [population[i] for i in parent_indices]
+        episode_seeds = rng.integers(0, 2**31 - 1, size=CHILD_EPIS).tolist()  # episode seeds for child evaluation
+        # evaluating childs
+        rewards = [evaluate(p, episode_seeds=episode_seeds) 
+                for p in population]
+        topK = int(PARENT_FRAC * POP_SIZE)
+        parent_indices = np.argsort(rewards)[-topK:]
+        parent_policies = [population[i] for i in parent_indices]
+        
+
+        new_population = []
+        for _ in range(POP_SIZE):
+            parent_idx = rng.choice(topK)
+            child = Policy(env).to(device)
+            # updating child
+            with torch.no_grad():
+                child.load_state_dict(parent_policies[parent_idx].state_dict())
+                for param in child.parameters():                    
+                    param.add_(torch.randn_like(param.data) * SIGMA)
+            new_population.append(child)
+        
+        population = new_population
+
+
+        # combining all parameters from parents
+        for name, param in policy.named_parameters():
+            parent_params = [p.state_dict()[name] for p in parent_policies]
+            params_mean = torch.mean(torch.stack(parent_params), dim=0)
+            param.data.copy_(params_mean)
+        
+        evaluation_reward = evaluate_parent(policy, EVAL_SEEDS)
+                
+        if gen%4==0:
+            print(f"RETURN \tepisode: {gen+1}, \t reward: {evaluation_reward:.4f}")
+        print("RETURN", gen+1, evaluation_reward, file=f)
+        
+    print('e', file=f)
+
+    # Close the environment
+    env.close()
+    f.close()
     
-
-    new_population = []
-    for _ in range(POP_SIZE):
-        parent_idx = rng.choice(topK)
-        child = Policy(env).to(device)
-        # updating child
-        with torch.no_grad():
-            child.load_state_dict(parent_policies[parent_idx].state_dict())
-            for param in child.parameters():                    
-                param.add_(torch.randn_like(param.data) * SIGMA)
-        new_population.append(child)
-    
-    population = new_population
-
-
-    # combining all parameters from parents
-    for name, param in policy.named_parameters():
-        parent_params = [p.state_dict()[name] for p in parent_policies]
-        params_mean = torch.mean(torch.stack(parent_params), dim=0)
-        param.data.copy_(params_mean)
-    
-    single = single_eval(policy)
-            
-    if gen%4==0:
-        print(f"RETURN \tepisode: {gen+1}, \t reward: {single:.4f}")
-    print("RETURN", gen+1, single, file=f)
-    
-print('e', file=f)
-
-# Close the environment
-env.close()
-    
-
+if __name__ == "__main__":
+    main()
