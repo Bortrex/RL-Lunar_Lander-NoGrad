@@ -19,7 +19,7 @@ The environment is considered solved if the agent scores at least 200 points.
 
 The model stabilises after 60 iterations of the algorithm. 
 
-<img src="https://github.com/user-attachments/assets/dca7ff98-4c87-4ac8-a253-e55c4f8730ac" width="800" height="400">
+<img src="docs/images/learning_curves.png" width="800" height="400">
 
 ## *UPDATE
 
