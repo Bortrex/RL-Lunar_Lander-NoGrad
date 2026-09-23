@@ -10,7 +10,7 @@ class Config:
     seed: int = 1234
     hidden: int = 128
     max_ep_steps: int = 500
-    pop_size: int = 128  # will be doubled after mirroring ⇒ 80 rollouts / iter
+    pop_size: int = 128  
 
     sigma0: float = 0.5  # initial exploration std
     max_iters: int = 150
