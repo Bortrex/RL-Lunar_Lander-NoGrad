@@ -23,7 +23,7 @@ class Config:
     beta: float = 0.4
 
 
-def asHHMMSS(s):
+def as_HHMMSS(s):
     m = math.floor(s / 60)
     s -= m * 60
     h = math.floor(m / 60)

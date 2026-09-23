@@ -52,6 +52,6 @@ We included the standard deviation of the parent policy during evaluation. This 
 
 Distributed under the MIT License. See `LICENSE` for more information.
 
-## Authors
+## Author
 
 – [@Bortrex](https://github.com/Bortrex)

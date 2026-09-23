@@ -7,7 +7,7 @@ import multiprocessing as mp
 
 from jax.example_libraries import optimizers as jax_opt
 from jax import flatten_util
-from utils import Config, asHHMMSS, centered_ranks
+from utils import Config, as_HHMMSS, centered_ranks
 from concurrent.futures import ProcessPoolExecutor
 
 cfg = Config()
@@ -132,6 +132,6 @@ if __name__ == '__main__':
         sigma *= cfg.sigma_decay  # slow geometric decay (backup)
 
     print("\n[TRAINING FINISHED]")
-    time_taken = asHHMMSS(time.time() - start_training)
+    time_taken = as_HHMMSS(time.time() - start_training)
     print(f'[SESSION TRAINING TOOK {time_taken} ] \n')
     env.close()

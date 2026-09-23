@@ -1,5 +1,6 @@
 import os
-import gym
+# import gym
+import gymnasium as gym
 import sys
 import math
 import torch
@@ -12,18 +13,16 @@ from pathlib import Path
 
 # USE_CUDA = torch.cuda.is_available()
 USE_CUDA = False
-# Variable = lambda *args, **kwargs: autograd.Variable(*args, **kwargs).cuda() if USE_CUDA else autograd.Variable(*args,
-#                                                                                                                 **kwargs)
 
 device = torch.device("cuda" if USE_CUDA else "cpu")
 
 SEED = 1234
 
-GAME = "LunarLander-v2"
+GAME = "LunarLander-v3"
 
 
 def environment_settings(name):
-    env = gym.make(name, continuous = True,)
+    env = gym.make(name, continuous=True,)
     spec = gym.spec(name)
     print(f"Game {name} settings:\n")
     print(f"Observation Space: {env.observation_space}")
@@ -31,14 +30,15 @@ def environment_settings(name):
 
     print(f"Episode Steps: {spec.max_episode_steps}")
     print(f"Nondeterministic: {spec.nondeterministic}")
-    print(f"Reward Range: {env.reward_range}")
+    # print(f"Reward Range: {env.reward_range}")
     print(f"Reward Threshold: {spec.reward_threshold}")
 
 # Create the Gym environment.
 environment_settings(GAME)
-env = gym.make(GAME, 
-        continuous = True,)
-env.seed(SEED * 2)
+env = gym.make(GAME
+        , continuous = True
+        , max_episode_steps=500)
+
 
 print(f"\n[Models running on {device}.]\n")
 
@@ -65,21 +65,21 @@ class Policy(nn.Module):
         return self.net(x)
 
 @torch.no_grad()
-def evaluate(policy, episodes=10):
+def evaluate(policy, episodes=10, random_state=None):
     
     average_cumulative_reward = 0.0
     for _ in range(episodes):
-        state = env.reset()
-        terminate = False
+        state, _  = env.reset(seed=random_state)
+        terminated = False
         cumulative_reward = 0.0
 
-        while not terminate:
+        while not terminated:
             sts_tensor = torch.FloatTensor(state).unsqueeze(0)            
             action = policy(sts_tensor).cpu().numpy().squeeze() 
             
             action += rng.normal(0, SIGMA, size=action_space)  # Add Gaussian noise for exploration
             action = np.clip(action, -action_bound, action_bound )
-            state, reward, terminate, _ = env.step(action)
+            state, reward, terminated, truncated, info = env.step(action)
             
             # Update statistics
             cumulative_reward += reward
@@ -91,16 +91,16 @@ def evaluate(policy, episodes=10):
     return average_cumulative_reward
 
 @torch.no_grad()
-def single_eval(policy):
-    state = env.reset()
-    terminate = False
+def single_eval(policy, random_state=None):
+    state, _  = env.reset(seed=random_state)
+    terminated = False
     cumulative_reward = 0.0
 
-    while not terminate:
+    while not terminated:
         sts_tensor = torch.FloatTensor(state).unsqueeze(0)        
         action = policy(sts_tensor).cpu().numpy().squeeze() 
         action = np.clip(action, -action_bound, action_bound )
-        state, reward, terminate, _ = env.step(action)
+        state, reward, terminated, truncated, info = env.step(action)
         
         # Update statistics
         cumulative_reward += reward
@@ -133,10 +133,14 @@ population = [Policy(env).to(device) for _ in range(POP_SIZE)]
 file = Path("dataPlots/").mkdir(parents=True, exist_ok=True)
 f = open(f"dataPlots/dataPopu-{SEED}.dat", "w")
 print("RETURN", f"population-{SEED}", file=f)
+
 for gen in range(NUM_generations):
-    
+
+    # random_state = rng.integers(0, 2**32 - 1, size=POP_SIZE)  # random seeds for each child
+    random_state = np.random.randint(0, 2**31 - 1, size=POP_SIZE).tolist()  # random seeds for each child error int64 need to be int32 for gymnasium
     # evaluating childs
-    rewards = [evaluate(p, episodes=CHILD_EPIS) for p in population]
+    rewards = [evaluate(p, episodes=CHILD_EPIS, random_state=rs) 
+               for (p, rs) in zip(population, random_state)]
     topK = int(PARENT_frac * POP_SIZE)
     parent_indices = np.argsort(rewards)[-topK:]
     parent_policies = [population[i] for i in parent_indices]
