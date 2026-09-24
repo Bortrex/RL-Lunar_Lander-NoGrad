@@ -80,7 +80,7 @@ print(f"[TRAINING ZEROTH-ORDER OPTIMIZATION METHOD ON {cfg.env_name.upper()}]")
 for it in range(1, cfg.max_iters + 1):
     key, eps_key, seed_key = jax.random.split(key, 3)
     eps = jax.random.normal(eps_key, shape=(cfg.pop_size, PARAM_DIM))
-    random_state = jax.random.randint(seed_key, shape=(), minval=0, maxval=1e7).item()
+    random_state = jax.random.randint(seed_key, shape=(), minval=0, maxval=2**31 - 1).item()
 
     rewards_pos = []
     rewards_neg = []
@@ -90,13 +90,18 @@ for it in range(1, cfg.max_iters + 1):
 
     rewards_pos = jnp.asarray(rewards_pos)
     rewards_neg = jnp.asarray(rewards_neg)
-    # compute gradient eq.12 Salimas et al., 2017
-    # rank‑normalised advantages
-    A_pos = 2 * centered_ranks(rewards_pos)
-    A_neg = 2 * centered_ranks(rewards_neg)
-    diff = A_pos - A_neg
-    gradient = (diff.reshape(-1, 1) * eps).mean(axis=0) / sigma
 
+    # Wierstra et al. (2014) fitness shaping
+    paired_rewards = jnp.stack([rewards_pos, rewards_neg], axis=1)
+    ranked_rewards = centered_ranks(paired_rewards)
+    rank_difference = ranked_rewards[:, 0] - ranked_rewards[:, 1]
+    # A_pos = 2 * centered_ranks(rewards_pos)
+    # A_neg = 2 * centered_ranks(rewards_neg)
+    # diff = A_pos - A_neg
+
+    # gradient = (diff.reshape(-1, 1) * eps).mean(axis=0) / sigma
+
+    gradient = (rank_difference[:, None] * eps).sum(axis=0) / paired_rewards.size
     theta += cfg.lr * gradient  # shift θ in the direction of the gradient (SGD)
 
     # parent policy performance
@@ -106,10 +111,10 @@ for it in range(1, cfg.max_iters + 1):
     if it % cfg.eval_every == 0 or it == 1:
         print(f"Iter {it:4d} | σ={sigma:.3f} |  Mean reward {mean_r:.1f} ± {onp.std(rewards):.1f}")
 
-    # 1/5th success rule for σ adaptation
-    successes = (rewards_pos > rewards_neg).mean()
-    sigma *= jnp.exp(cfg.beta * (successes - cfg.success_ratio))
-    sigma *= cfg.sigma_decay  # slow geometric decay (backup)
+    # # 1/5th success rule for σ adaptation
+    # successes = (rewards_pos > rewards_neg).mean()
+    # sigma *= jnp.exp(cfg.beta * (successes - cfg.success_ratio))
+    # sigma *= cfg.sigma_decay  # slow geometric decay (backup)
 
 print("\n[TRAINING FINISHED]")
 time_taken = format_elapsed_time(time.time() - start_training)

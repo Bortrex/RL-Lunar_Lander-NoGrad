@@ -97,7 +97,7 @@ if __name__ == '__main__':
     for it in range(1, cfg.max_iters + 1):
         key, eps_key, seed_key = jax.random.split(key, 3)
         eps = jax.random.normal(eps_key, shape=(cfg.pop_size, PARAM_DIM))
-        random_state = jax.random.randint(seed_key, shape=(), minval=0, maxval=1e7).item()
+        random_state = jax.random.randint(seed_key, shape=(), minval=0, maxval=2**31 - 1).item()
 
         # run parallel processes for perturbations
         ctx = mp.get_context("spawn")

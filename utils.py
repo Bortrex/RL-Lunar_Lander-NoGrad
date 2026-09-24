@@ -16,7 +16,7 @@ class Config:
     pop_size: int = 128  
 
     sigma0: float = 0.5  # initial exploration std
-    max_iters: int = 150
+    max_iters: int = 101
     eval_every: int = 5  # perform an evaluation on the parent policy
     episode_average: int = 5  # deterministic eval episodes
 
