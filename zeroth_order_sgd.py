@@ -27,9 +27,9 @@ def main(argv=None):
 
     cfg = Config()
     cfg.seed = args.seed
-    cfg.lr = 0.5  # SGD learning rate on mean parameters
+    cfg.lr = 4.0 #0.5  # SGD learning rate on mean parameters
     cfg.pop_size = 128
-    cfg.max_iters = 101
+    cfg.max_iters = 51 #101
     print(f"\nSeed: {cfg.seed}\n")
     start_training = time.time()
 
@@ -72,6 +72,13 @@ def main(argv=None):
 
 
         forward_step = jax.jit(_forward_step)  # JIT compile for speed
+        # @jit
+        def cosine_similarity(g1, g2):
+            dot_product = jnp.dot(g1, g2)
+            norm_g1 = jnp.linalg.norm(g1)
+            norm_g2 = jnp.linalg.norm(g2)
+            
+            return dot_product / (norm_g1 * norm_g2 + 1e-8)
 
 
         # policy update is performed before any parent/child launch
@@ -90,6 +97,8 @@ def main(argv=None):
 
         PARAM_DIM = theta.size
         sigma = cfg.sigma0
+        c_sigma = 2.0  # learning rate for sigma adaptation
+        velocity = jnp.zeros_like(theta)
 
         print(f"[TRAINING ZEROTH-ORDER OPTIMIZATION METHOD ON {cfg.env_name.upper()}]")
         output_dir = Path("results")
@@ -105,25 +114,37 @@ def main(argv=None):
 
                 rewards_pos = []
                 rewards_neg = []
+                # rewards_parent = []
                 for j in range(cfg.pop_size):
                     rewards_pos.append(run_episode(theta + sigma * eps[j], random_state + j))
                     rewards_neg.append(run_episode(theta - sigma * eps[j], random_state + j))
+                    # rewards_parent.append(run_episode(theta, random_state + j))
 
                 rewards_pos = jnp.asarray(rewards_pos)
                 rewards_neg = jnp.asarray(rewards_neg)
+                # rewards_parent = jnp.asarray(rewards_parent)
 
                 # Wierstra et al. (2014) fitness shaping
                 paired_rewards = jnp.stack([rewards_pos, rewards_neg], axis=1)
                 ranked_rewards = centered_ranks(paired_rewards) # * 2
                 rank_difference = ranked_rewards[:, 0] - ranked_rewards[:, 1]
+                
                 # A_pos = 2 * centered_ranks(rewards_pos)
                 # A_neg = 2 * centered_ranks(rewards_neg)
                 # diff = A_pos - A_neg
 
-                # gradient = (diff.reshape(-1, 1) * eps).mean(axis=0) / sigma
+                # gradient_old = (diff.reshape(-1, 1) * eps).mean(axis=0) / sigma
 
                 gradient = (rank_difference[:, None] * eps).sum(axis=0) / paired_rewards.size
                 theta += cfg.lr * gradient  # shift θ in the direction of the gradient (SGD)
+                # momentum = 0.9
+                # velocity = momentum * velocity + (1 - momentum) * gradient
+                # theta += cfg.lr * velocity
+
+                # joint_update_norm = jnp.linalg.norm(gradient)
+                # old_update_norm = jnp.linalg.norm(gradient_old)
+                # print(f"Norm ratio = {old_update_norm / joint_update_norm:.4f}")
+                # print(f"Cosine similarity = {cosine_similarity(gradient, gradient_old):.4f}")
 
                 # parent policy performance
                 rewards = [run_episode(theta, seed) for seed in EVAL_SEEDS]
@@ -137,6 +158,14 @@ def main(argv=None):
                 # successes = (rewards_pos > rewards_neg).mean()
                 # sigma *= jnp.exp(cfg.beta * (successes - cfg.success_ratio))
                 # sigma *= cfg.sigma_decay  # slow geometric decay (backup)
+                # success_rate = jnp.mean(jnp.concatenate([
+                #         rewards_pos > rewards_parent,
+                #         rewards_neg > rewards_parent,
+                #         ])
+                #     )
+                # sigma *= jnp.exp(
+                #         c_sigma * (success_rate - 0.2)
+                #     )
 
         print("\n[TRAINING FINISHED]")
         time_taken = format_elapsed_time(time.time() - start_training)
