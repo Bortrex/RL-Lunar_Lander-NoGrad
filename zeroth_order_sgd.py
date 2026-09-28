@@ -27,9 +27,10 @@ def main(argv=None):
 
     cfg = Config()
     cfg.seed = args.seed
-    cfg.lr = 4.0 #0.5  # SGD learning rate on mean parameters
+    # cfg.lr = 8.0 # used only when momentum is ON
+    cfg.lr = 4.0 # SGD learning rate on mean parameters
     cfg.pop_size = 128
-    cfg.max_iters = 51 #101
+    cfg.max_iters = 101
     print(f"\nSeed: {cfg.seed}\n")
     start_training = time.time()
 
@@ -72,7 +73,7 @@ def main(argv=None):
 
 
         forward_step = jax.jit(_forward_step)  # JIT compile for speed
-        # @jit
+        
         def cosine_similarity(g1, g2):
             dot_product = jnp.dot(g1, g2)
             norm_g1 = jnp.linalg.norm(g1)
@@ -99,11 +100,12 @@ def main(argv=None):
         sigma = cfg.sigma0
         c_sigma = 2.0  # learning rate for sigma adaptation
         velocity = jnp.zeros_like(theta)
+        momentum = 0.9  # momentum factor for velocity update
 
         print(f"[TRAINING ZEROTH-ORDER OPTIMIZATION METHOD ON {cfg.env_name.upper()}]")
         output_dir = Path("results")
         output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = output_dir / f"zeroth_order_sgd_seed-{cfg.seed}.csv"
+        output_path = output_dir / f"zeroth_order_sgd_seed-{cfg.seed}_baseline.csv"
         with output_path.open("w", newline="") as result_file:
             writer = csv.writer(result_file)
             writer.writerow(("generation", "reward"))
@@ -137,7 +139,7 @@ def main(argv=None):
 
                 gradient = (rank_difference[:, None] * eps).sum(axis=0) / paired_rewards.size
                 theta += cfg.lr * gradient  # shift θ in the direction of the gradient (SGD)
-                # momentum = 0.9
+
                 # velocity = momentum * velocity + (1 - momentum) * gradient
                 # theta += cfg.lr * velocity
 
@@ -155,9 +157,6 @@ def main(argv=None):
                     print(f"Iter {it:4d} | σ={sigma:.3f} |  Mean reward {mean_r:.1f} ± {onp.std(rewards):.1f}")
 
                 # # 1/5th success rule for σ adaptation
-                # successes = (rewards_pos > rewards_neg).mean()
-                # sigma *= jnp.exp(cfg.beta * (successes - cfg.success_ratio))
-                # sigma *= cfg.sigma_decay  # slow geometric decay (backup)
                 # success_rate = jnp.mean(jnp.concatenate([
                 #         rewards_pos > rewards_parent,
                 #         rewards_neg > rewards_parent,

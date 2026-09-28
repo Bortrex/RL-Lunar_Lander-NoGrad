@@ -45,6 +45,25 @@ The model stabilises after 60 iterations of the algorithm.
 These methods estimate the gradient using function evaluations of the objective, often by perturbing the policy and observing the resulting reward. The algorithm perturbs θ in two opposite directions, evaluates them,
 and uses which one achieves the best results in order to compute how to move θ so that the quality of the policy improves.
 
+## Zeroth-order SGD
+
+During development, momentum-based SGD and adaptive-$\sigma$ variants were also explored. These remain experimental. The retained baseline uses plain SGD with a fixed perturbation scale.
+
+### Usage
+
+``` bash
+# Default run: seed 1234
+python zeroth_order_sgd.py
+python zeroth_order_sgd.py --seed 5678
+```
+
+
+## Zeroth-order Adam
+
+
+### Usage
+
+
 ## Results
 
 We approach two methods of optimization: SGD and Adam both very popular methods.
@@ -60,9 +79,9 @@ Part of the rapid solution of the environment is due to the size of the populati
 <img src="https://github.com/user-attachments/assets/ae111b9d-d9bf-40de-877f-2c8704c19eb1" width="800" height="400">
 
 
-We included the standard deviation of the parent policy during evaluation. This allows us to observe the role played by the learning rate. Having a smoother progression with the Adam method.
+<!-- We included the standard deviation of the parent policy during evaluation. This allows us to observe the role played by the learning rate. Having a smoother progression with the Adam method.
 
-<img src="https://github.com/user-attachments/assets/6891d4b0-29ae-4c16-80bb-0c00ba6138b5" width="800" height="400">
+<img src="https://github.com/user-attachments/assets/6891d4b0-29ae-4c16-80bb-0c00ba6138b5" width="800" height="400"> -->
 
 
 ## License
