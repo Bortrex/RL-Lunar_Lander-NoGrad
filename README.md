@@ -14,6 +14,7 @@ Experiments use the continuous version of Lunar Lander v3 [Gym Documentation](ht
 <figcaption><small>The resulting .gif comes from a trained agent following population method.</small></figcaption>
 </p>
 
+The default training seed is `1234` and can be changed from the command line. At every generation or iteration, the current policy is evaluated without training noise or parameter perturbations on the same five fixed environment seeds (`1234 – 1238`), independently of the training seed. Each run stores the evaluation reward in a method-specific CSV file under `results/`.
 
 ## Methods
 
@@ -33,10 +34,6 @@ python population_method.py --seed 5678 --device cuda
 The default training seed is 1234 and the default device is CPU; CUDA is
 optional and requires an available CUDA device. 
 
-Each generation, the current parent policy is evaluated without exploration
-noise on 5 fixed environment seeds, independent of the training seed. Each
-run writes `generation,reward` CSV data (generation and evaluation reward) to
-`results/population_method_seed-<seed>.csv`.
 
 
 ### Zeroth-order Optimization 
@@ -105,16 +102,26 @@ The figure below shows the mean evaluation reward across independent training ru
 All three methods eventually reach the 200-point reward. Zeroth-order Adam improves the fastest and reaches the highest average reward, stabilizing close to 280. Zeroth-order SGD also reaches the benchmark reliably, but with more variation between iterations. The population method learns more slowly and remains more variable, but still reaches successful policies.
 
 
-<!-- Part of the rapid solution of the environment is due to the size of the population we use.
+## References
 
-<img src="https://github.com/user-attachments/assets/ae111b9d-d9bf-40de-877f-2c8704c19eb1" width="800" height="400"> -->
+- Salimans, T., Ho, J., Chen, X., Sidor, S., & Sutskever, I. (2017).
+  *Evolution Strategies as a Scalable Alternative to Reinforcement Learning.*
+  Main reference for the zeroth-order evolution-strategy approach, mirrored
+  perturbations, fitness shaping, and scalable parallel evaluation.
 
+- Wierstra, D., Schaul, T., Glasmachers, T., Sun, Y., Peters, J.,
+  & Schmidhuber, J. (2014).
+  *Natural Evolution Strategies.*
+  Background on evolution strategies, fitness shaping, and optimization of
+  search distributions.
 
-<!-- We included the standard deviation of the parent policy during evaluation. This allows us to observe the role played by the learning rate. Having a smoother progression with the Adam method.
+- Choromanski, K., Rowland, M., Sindhwani, V., Turner, R., & Weller, A. (2018).
+  *Structured Evolution with Compact Architectures for Scalable Policy Optimization.*
+  Motivation for the optional orthogonal Gaussian perturbation sampler.
 
-<img src="https://github.com/user-attachments/assets/6891d4b0-29ae-4c16-80bb-0c00ba6138b5" width="800" height="400"> -->
-
-
+- Hansen, N. (2015).
+  *The CMA Evolution Strategy: A Tutorial / Evolution Strategies overview.*
+  Used as background when exploring step-size adaptation and the 1/5 success rule.
 
 
 ## License
