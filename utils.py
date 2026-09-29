@@ -104,10 +104,10 @@ def plot_learning_curves(results_dir="results", save_path=None, show=False):
     for index, (method, generations, mean, std, count) in enumerate(summaries):
         label = method.replace("_", " ").capitalize().replace("sgd", "SGD")
         color = colors[index % len(colors)]
-        ax.plot(generations, mean, color=color, linewidth=1.8,
+        ax.plot(generations, mean, color=color, linewidth=2.8,
                 label=f"{label} (n={count})")
         ax.fill_between(generations, mean - std, mean + std,
-                        color=color, alpha=0.18, linewidth=0)
+                        color=color, alpha=0.11, linewidth=0)
 
     ax.axhline(y=200, color="red", alpha=0.3, linestyle="--", linewidth=1.25,
                label="Reward threshold (200)")

@@ -3,7 +3,6 @@
 import argparse
 import csv
 import time
-from functools import partial
 from pathlib import Path
 
 import gymnasium as gym
@@ -14,22 +13,33 @@ from jax import flatten_util
 
 from utils import Config, centered_ranks, format_elapsed_time
 
+# Set CPU execution before initializing policy arrays.
+jax.config.update("jax_platforms", "cpu")
 
-def init_params(key, observation_dim, action_dimension, hidden_size):
+cfg = Config()
+env = gym.make(
+    cfg.env_name,
+    continuous=cfg.continuous,
+    enable_wind=cfg.enable_wind,
+    max_episode_steps=cfg.max_episode_steps,
+)
+
+observation_dim = env.observation_space.shape[0]
+action_dimension = env.action_space.shape[0]
+action_bound = env.action_space.high[0]
+
+
+def init_params(key):
     k1, k2 = jax.random.split(key, 2)
-    w1 = jax.random.normal(
-        k1, (observation_dim, hidden_size)
-    ) * 0.1
-    b1 = jnp.zeros((hidden_size,))
-    w2 = jax.random.normal(
-        k2, (hidden_size, action_dimension)
-    ) * 0.1
+    w1 = jax.random.normal(k1, (observation_dim, cfg.hidden_size)) * 0.1
+    b1 = jnp.zeros((cfg.hidden_size,))
+    w2 = jax.random.normal(k2, (cfg.hidden_size, action_dimension)) * 0.1
     b2 = jnp.zeros((action_dimension,))
     return dict(w1=w1, b1=b1, w2=w2, b2=b2)
 
 
-def _forward_step(flat_params, observation, unravel_fn, action_bound):
-    """Evaluate one observation using flattened parameters."""
+def _forward_step(flat_params, observation):
+    """Forward pass for a single observation using flattened parameters."""
     params_tree = unravel_fn(flat_params)
     w1 = params_tree['w1']
     b1 = params_tree['b1']
@@ -41,8 +51,11 @@ def _forward_step(flat_params, observation, unravel_fn, action_bound):
     return x * action_bound
 
 
-def run_episode(flat_params, random_state, env, forward_step):
-    """Return one episode reward using the supplied environment and policy."""
+forward_step = jax.jit(_forward_step)
+
+
+def run_episode(flat_params, random_state):
+    """Return one episode reward using the shared environment and policy."""
     episode_over = False
     cumulative_reward = 0.0
     state, _ = env.reset(seed=random_state)
@@ -85,9 +98,14 @@ def sample_perturbations(key, pop_size, parameter_dim, sampling="gaussian"):
     return directions.T * radii[:, None]
 
 
+# Initialize the parameter structure used by the module-level forward pass.
+_, unravel_fn = flatten_util.ravel_pytree(init_params(jax.random.key(0)))
+
+
 def main(argv=None):
     """Train fixed-sigma SGD and log benchmark mean rewards."""
-    cfg = Config()
+    global unravel_fn
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--seed", type=int, default=Config.seed,
@@ -106,29 +124,12 @@ def main(argv=None):
     print(f"\nSeed: {cfg.seed}\n")
     start_training = time.time()
 
-    env = gym.make(
-        cfg.env_name,
-        continuous=cfg.continuous,
-        enable_wind=cfg.enable_wind,
-        max_episode_steps=cfg.max_episode_steps,
-    )
     try:
-        observation_dim = env.observation_space.shape[0]
-        action_dimension = env.action_space.shape[0]
-        action_bound = env.action_space.high[0]
-
         key = jax.random.key(cfg.seed)
         # Consume a separate initialization key before the training splits.
         key, init_key = jax.random.split(key)
-        params_dict = init_params(
-            init_key, observation_dim, action_dimension, cfg.hidden_size
-        )
+        params_dict = init_params(init_key)
         theta, unravel_fn = flatten_util.ravel_pytree(params_dict)
-
-        # Bind per-run constants before tracing, as in the original closure.
-        forward_step = jax.jit(partial(
-            _forward_step, unravel_fn=unravel_fn, action_bound=action_bound
-        ))
 
         parameter_dim = theta.size
         sigma = cfg.sigma
@@ -162,13 +163,11 @@ def main(argv=None):
                     rewards_pos.append(
                         run_episode(
                             theta + sigma * eps[j], random_state + j,
-                            env, forward_step,
                         )
                     )
                     rewards_neg.append(
                         run_episode(
                             theta - sigma * eps[j], random_state + j,
-                            env, forward_step,
                         )
                     )
 
@@ -186,7 +185,7 @@ def main(argv=None):
                 theta += learning_rate * gradient
 
                 rewards = [
-                    run_episode(theta, seed, env, forward_step)
+                    run_episode(theta, seed)
                     for seed in cfg.eval_seeds
                 ]
                 mean_r = np.mean(rewards)

@@ -1,14 +1,15 @@
 import argparse
 import csv
-import multiprocessing as mp
 import time
+import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-import gymnasium as gym
+
 import jax
 import jax.numpy as jnp
 import numpy as np
+import gymnasium as gym
 from jax import flatten_util
 from jax.example_libraries import optimizers as jax_opt
 
