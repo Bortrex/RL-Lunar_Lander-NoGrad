@@ -63,6 +63,11 @@ python zeroth_order_sgd.py --seed 5678
 
 ### Usage
 
+### Parallel
+
+The parallel implementation reduces the same 101-iteration Adam experiment from 23m43s to 4m42s, a 5.05× wall-clock speedup.
+
+<img src="docs/images/adam_parallel_scaling.png" width="800">
 
 ## Results
 
@@ -82,6 +87,8 @@ Part of the rapid solution of the environment is due to the size of the populati
 <!-- We included the standard deviation of the parent policy during evaluation. This allows us to observe the role played by the learning rate. Having a smoother progression with the Adam method.
 
 <img src="https://github.com/user-attachments/assets/6891d4b0-29ae-4c16-80bb-0c00ba6138b5" width="800" height="400"> -->
+
+
 
 
 ## License

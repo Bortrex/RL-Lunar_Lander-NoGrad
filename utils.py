@@ -125,5 +125,71 @@ def plot_learning_curves(results_dir="results", save_path=None, show=False):
     return fig, ax
 
 
+def plot_parallel_scaling():
+    import matplotlib.pyplot as plt
+    import pandas as pd
+
+    workers = [1, 2, 4, 8, 16]
+    times_seconds = [1423, 765, 466, 343, 282]
+
+    baseline = times_seconds[0]
+    speedup = [baseline / t for t in times_seconds]
+    efficiency = [s / w for s, w in zip(speedup, workers)]
+    times_minutes = [t / 60 for t in times_seconds]
+    ideal_minutes = [times_minutes[0] / w for w in workers]
+
+    df = pd.DataFrame({
+        "workers": workers,
+        "runtime_seconds": times_seconds,
+        "runtime_minutes": times_minutes,
+        "speedup": speedup,
+        "parallel_efficiency": efficiency,
+    })
+
+    png_path = Path("./docs/images/adam_parallel_scaling.png")
+    csv_path = Path("./results/adam_parallel_scaling.csv")
+
+    fig, ax = plt.subplots(figsize=(9, 5.5), dpi=160)
+    ax.plot(workers, times_minutes, marker="o", linewidth=2, label="Measured runtime")
+    ax.plot(workers, ideal_minutes, linestyle="--", linewidth=1.5, label="Ideal linear scaling")
+
+    for w, mins, s, secs in zip(workers, times_minutes, speedup, times_seconds):
+        m = secs // 60
+        sec = secs % 60
+        ax.annotate(
+            f"{m}m{sec:02d}s\n{s:.2f}×",
+            (w, mins),
+            textcoords="offset points",
+            xytext=(-0.5, 6.5),
+            ha="left",
+            fontsize=9,
+        )
+
+    ax.set_title(
+        "Parallel Scaling of Zeroth-Order Adam\n"
+        "LunarLander-v3 · seed 3210 · population 256 · 101 iterations"
+    )
+    ax.set_xlabel("Worker processes")
+    ax.set_ylabel("Training time (minutes)")
+    ax.set_xticks(workers)
+    ax.set_ylim(bottom=0)
+    ax.spines[['right', 'top']].set_visible(False)
+
+    ax.grid(True, alpha=0.25)
+    ax.legend(frameon=False)
+    fig.tight_layout()
+    fig.savefig(png_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+    df.to_csv(csv_path, index=False)
+
+    print(df.to_string(index=False, formatters={
+        "runtime_minutes": "{:.2f}".format,
+        "speedup": "{:.2f}".format,
+        "parallel_efficiency": "{:.1%}".format,
+    }))
+
+
 if __name__ == "__main__":
-    plot_learning_curves(results_dir="results", save_path="docs/images/learning_curves.png", show=True)
+    # plot_learning_curves(results_dir="results", save_path="docs/images/learning_curves.png", show=True)
+    plot_parallel_scaling()

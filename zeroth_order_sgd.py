@@ -16,12 +16,47 @@ from utils import Config, format_elapsed_time, centered_ranks
 EVAL_SEEDS = (1234, 1235, 1236, 1237, 1238)
 
 
+def sample_perturbations(key, pop_size, parameter_dim, sampling="gaussian"):
+    """Sample iid or orthogonal vectors with standard Gaussian marginals.
+
+    Orthogonal exploration is an experimental variance-reduction strategy
+    inspired by Choromanski et al. (2018), not a lower-MSE guarantee for
+    this centered-rank estimator.
+    """
+    if sampling == "gaussian":
+        return jax.random.normal(key, shape=(pop_size, parameter_dim))
+    if sampling != "orthogonal":
+        raise ValueError(f"Unknown perturbation sampling method: {sampling}")
+    if pop_size > parameter_dim:
+        raise ValueError(
+            "Orthogonal sampling requires pop_size <= parameter_dim "
+            f"(got {pop_size} > {parameter_dim})"
+        )
+
+    direction_key, radius_key = jax.random.split(key)
+    matrix = jax.random.normal(direction_key, shape=(parameter_dim, pop_size))
+    directions, triangular = jnp.linalg.qr(matrix, mode="reduced")
+    # Positive R diagonal makes Q Haar-distributed on orthonormal frames.
+    signs = jnp.where(jnp.diag(triangular) < 0, -1.0, 1.0)
+    directions = directions * signs
+    # Independent chi_d radii restore N(0, I) marginals, not unit vectors.
+    radial_samples = jax.random.normal(
+        radius_key, shape=(pop_size, parameter_dim)
+    )
+    radii = jnp.linalg.norm(radial_samples, axis=1)
+    return directions.T * radii[:, None]
+
+
 def main(argv=None):
     """Train fixed-sigma SGD and record the fixed-benchmark mean each iteration."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--seed", type=int, default=1234,
         help="training seed (default: 1234); evaluation seeds remain fixed",
+    )
+    parser.add_argument(
+        "--sampling", choices=("gaussian", "orthogonal"), default="gaussian",
+        help="perturbation sampling strategy (default: gaussian)",
     )
     args = parser.parse_args(argv)
 
@@ -105,13 +140,17 @@ def main(argv=None):
         print(f"[TRAINING ZEROTH-ORDER OPTIMIZATION METHOD ON {cfg.env_name.upper()}]")
         output_dir = Path("results")
         output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = output_dir / f"zeroth_order_sgd_seed-{cfg.seed}_baseline.csv"
+        method = ("zeroth_order_sgd_orthogonal" if args.sampling == "orthogonal"
+                  else "zeroth_order_sgd")
+        output_path = output_dir / f"{method}_seed-{cfg.seed}.csv"
         with output_path.open("w", newline="") as result_file:
             writer = csv.writer(result_file)
             writer.writerow(("generation", "reward"))
             for it in range(1, cfg.max_iters + 1):
                 key, eps_key, seed_key = jax.random.split(key, 3)
-                eps = jax.random.normal(eps_key, shape=(cfg.pop_size, PARAM_DIM))
+                eps = sample_perturbations(
+                    eps_key, cfg.pop_size, PARAM_DIM, args.sampling
+                )
                 random_state = jax.random.randint(seed_key, shape=(), minval=0, maxval=2**31 - 1).item()
 
                 rewards_pos = []

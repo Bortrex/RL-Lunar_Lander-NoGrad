@@ -1,5 +1,9 @@
-import time
 import jax
+jax.config.update("jax_platforms", "cpu")
+import argparse
+import csv
+from pathlib import Path
+import time
 import jax.numpy as jnp
 import numpy as onp
 import gymnasium as gym
@@ -9,6 +13,9 @@ from jax.example_libraries import optimizers as jax_opt
 from jax import flatten_util
 from utils import Config, format_elapsed_time, centered_ranks
 from concurrent.futures import ProcessPoolExecutor
+
+# Fixed benchmark scenarios, independent of the training seed.
+EVAL_SEEDS = (1234, 1235, 1236, 1237, 1238)
 
 cfg = Config()
 env = gym.make(cfg.env_name
@@ -71,67 +78,88 @@ def _run(p_sigma_seed):
 # required for global access in _run
 _, unravel_fn = flatten_util.ravel_pytree(init_params(jax.random.key(0)))
 
-if __name__ == '__main__':
+def main(argv=None):
+    """Train the fixed-sigma Adam baseline and log benchmark mean rewards."""
+    global unravel_fn
 
-    SEED = int(time.time())
-    print(f"\nSeed: {SEED}\n")
-    cfg.seed = SEED
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--seed", type=int, default=1234,
+        help="training seed (default: 1234); evaluation seeds remain fixed",
+    )
+    parser.add_argument(
+        "--workers", type=int, default=mp.cpu_count(),
+        help="number of parallel workers (default: all available cores)",   
+    )
+    args = parser.parse_args(argv)
+    cfg.seed = args.seed
+    cfg.workers = args.workers
+    print(f"\nSeed: {cfg.seed} and workers: {cfg.workers}\n")
     cfg.lr = 0.15  # Adam learning rate on mean parameters
     cfg.pop_size = 256
+    cfg.max_iters = 101
 
-    start_training = time.time()
+    try:
+        start_training = time.time()
 
-    key = jax.random.key(cfg.seed)
-    params_dict = init_params(key)
-    theta, unravel_fn = flatten_util.ravel_pytree(params_dict)
+        key = jax.random.key(cfg.seed)
+        key, init_key = jax.random.split(key)
+        params_dict = init_params(init_key)
+        theta, unravel_fn = flatten_util.ravel_pytree(params_dict)
 
-    PARAM_DIM = theta.size
-    sigma = cfg.sigma0
+        PARAM_DIM = theta.size
+        sigma = cfg.sigma0
 
-    # setting up Adam optimizer
-    opt_init, opt_update, opt_get = jax_opt.adam(cfg.lr)
-    opt_state = opt_init(theta)
+        # setting up Adam optimizer
+        opt_init, opt_update, opt_get = jax_opt.adam(cfg.lr)
+        opt_state = opt_init(theta)
 
-    print(f"[TRAINING ZEROTH-ORDER OPTIMIZATION METHOD ON {cfg.env_name.upper()}]")
-
-    for it in range(1, cfg.max_iters + 1):
-        key, eps_key, seed_key = jax.random.split(key, 3)
-        eps = jax.random.normal(eps_key, shape=(cfg.pop_size, PARAM_DIM))
-        random_state = jax.random.randint(seed_key, shape=(), minval=0, maxval=2**31 - 1).item()
-
-        # run parallel processes for perturbations
+        print(f"[TRAINING ZEROTH-ORDER OPTIMIZATION METHOD ON {cfg.env_name.upper()}]")
         ctx = mp.get_context("spawn")
-        with ProcessPoolExecutor(mp_context=ctx) as executor:
-            task_pos = [(theta + sigma * eps[j], random_state + j) for j in range(cfg.pop_size)]
-            rewards_pos = list(executor.map(_run, task_pos))
-            task_neg = [(theta - sigma * eps[j], random_state + j) for j in range(cfg.pop_size)]
-            rewards_neg = list(executor.map(_run, task_neg))
 
-        rewards_pos = jnp.asarray(rewards_pos)
-        rewards_neg = jnp.asarray(rewards_neg)
-        # compute gradient eq.12 Salimas et al., 2017
-        # rank‑normalised advantages
-        A_pos = 2 * centered_ranks(rewards_pos)
-        A_neg = 2 * centered_ranks(rewards_neg)
-        diff = A_pos - A_neg
-        gradient = (diff.reshape(-1, 1) * eps).mean(axis=0) / sigma
+        output_dir = Path("results")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / f"zeroth_order_adam_seed-{cfg.seed}.csv"
+        with output_path.open("w", newline="") as result_file, \
+            ProcessPoolExecutor(mp_context=ctx, max_workers=cfg.workers) as executor:
+            writer = csv.writer(result_file)
+            writer.writerow(("generation", "reward"))
+            for it in range(1, cfg.max_iters + 1):
+                key, eps_key, seed_key = jax.random.split(key, 3)
+                eps = jax.random.normal(eps_key, shape=(cfg.pop_size, PARAM_DIM))
+                random_state = jax.random.randint(seed_key, shape=(), minval=0, maxval=2**31 - 1).item()
 
-        opt_state = opt_update(it - 1, -gradient, opt_state)  # Adam update
-        theta = opt_get(opt_state)
+                # run parallel processes for perturbations
+                task_pos = [(theta + sigma * eps[j], random_state + j) for j in range(cfg.pop_size)]
+                rewards_pos = list(executor.map(_run, task_pos))
+                task_neg = [(theta - sigma * eps[j], random_state + j) for j in range(cfg.pop_size)]
+                rewards_neg = list(executor.map(_run, task_neg))
 
-        # parent policy performance
-        rewards = [run_episode(theta, random_state - j) for j in range(cfg.episode_average)]
-        mean_r = onp.mean(rewards)
+                rewards_pos = jnp.asarray(rewards_pos)
+                rewards_neg = jnp.asarray(rewards_neg)
+                # Rank both members of every mirrored pair together.
+                paired_rewards = jnp.stack([rewards_pos, rewards_neg], axis=1)
+                ranked_rewards = centered_ranks(paired_rewards)
+                rank_difference = ranked_rewards[:, 0] - ranked_rewards[:, 1]
+                gradient = (rank_difference[:, None] * eps).sum(axis=0) / paired_rewards.size
 
-        if it % cfg.eval_every == 0 or it == 1:
-            print(f"Iter {it:4d} | σ={sigma:.3f} |  Mean reward {mean_r:.1f} ± {onp.std(rewards):.1f}")
+                opt_state = opt_update(it - 1, -gradient, opt_state)  # Adam update
+                theta = opt_get(opt_state)
 
-        # 1/5th success rule for σ adaptation
-        successes = (rewards_pos > rewards_neg).mean()
-        sigma *= jnp.exp(cfg.beta * (successes - cfg.success_ratio))
-        sigma *= cfg.sigma_decay  # slow geometric decay (backup)
+                # parent policy performance
+                rewards = [run_episode(theta, seed) for seed in EVAL_SEEDS]
+                mean_r = onp.mean(rewards)
+                writer.writerow((it, mean_r))
 
-    print("\n[TRAINING FINISHED]")
-    time_taken = format_elapsed_time(time.time() - start_training)
-    print(f'[SESSION TRAINING TOOK {time_taken} ] \n')
-    env.close()
+                if it % cfg.eval_every == 0 or it == 1:
+                    print(f"Iter {it:4d} | σ={sigma:.3f} |  Mean reward {mean_r:.1f} ± {onp.std(rewards):.1f}")
+
+        print("\n[TRAINING FINISHED]")
+        time_taken = format_elapsed_time(time.time() - start_training)
+        print(f'[SESSION TRAINING TOOK {time_taken} ] \n')
+    finally:
+        env.close()
+
+
+if __name__ == "__main__":
+    main()
