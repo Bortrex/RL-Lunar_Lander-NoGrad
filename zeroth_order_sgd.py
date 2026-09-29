@@ -2,18 +2,56 @@
 
 import argparse
 import csv
-from pathlib import Path
 import time
+from functools import partial
+from pathlib import Path
+
 import gymnasium as gym
 import jax
 import jax.numpy as jnp
-import numpy as onp
+import numpy as np
 from jax import flatten_util
 
-from utils import Config, format_elapsed_time, centered_ranks
+from utils import Config, centered_ranks, format_elapsed_time
 
-# Fixed benchmark scenarios, independent of the training seed.
-EVAL_SEEDS = (1234, 1235, 1236, 1237, 1238)
+
+def init_params(key, observation_dim, action_dimension, hidden_size):
+    k1, k2 = jax.random.split(key, 2)
+    w1 = jax.random.normal(
+        k1, (observation_dim, hidden_size)
+    ) * 0.1
+    b1 = jnp.zeros((hidden_size,))
+    w2 = jax.random.normal(
+        k2, (hidden_size, action_dimension)
+    ) * 0.1
+    b2 = jnp.zeros((action_dimension,))
+    return dict(w1=w1, b1=b1, w2=w2, b2=b2)
+
+
+def _forward_step(flat_params, observation, unravel_fn, action_bound):
+    """Evaluate one observation using flattened parameters."""
+    params_tree = unravel_fn(flat_params)
+    w1 = params_tree['w1']
+    b1 = params_tree['b1']
+    w2 = params_tree['w2']
+    b2 = params_tree['b2']
+    x = jnp.tanh(observation @ w1 + b1)
+    x = jnp.tanh(x @ w2 + b2)
+
+    return x * action_bound
+
+
+def run_episode(flat_params, random_state, env, forward_step):
+    """Return one episode reward using the supplied environment and policy."""
+    episode_over = False
+    cumulative_reward = 0.0
+    state, _ = env.reset(seed=random_state)
+    while not episode_over:
+        action = forward_step(flat_params, state)
+        state, reward, terminated, truncated, _ = env.step(action)
+        cumulative_reward += reward
+        episode_over = terminated or truncated
+    return cumulative_reward
 
 
 def sample_perturbations(key, pop_size, parameter_dim, sampling="gaussian"):
@@ -48,11 +86,13 @@ def sample_perturbations(key, pop_size, parameter_dim, sampling="gaussian"):
 
 
 def main(argv=None):
-    """Train fixed-sigma SGD and record the fixed-benchmark mean each iteration."""
+    """Train fixed-sigma SGD and log benchmark mean rewards."""
+    cfg = Config()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--seed", type=int, default=1234,
-        help="training seed (default: 1234); evaluation seeds remain fixed",
+        "--seed", type=int, default=Config.seed,
+        help=("training seed (default: %(default)s); "
+              "evaluation seeds remain fixed"),
     )
     parser.add_argument(
         "--sampling", choices=("gaussian", "orthogonal"), default="gaussian",
@@ -60,88 +100,49 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
 
-    cfg = Config()
     cfg.seed = args.seed
-    # cfg.lr = 8.0 # used only when momentum is ON
-    cfg.lr = 4.0 # SGD learning rate on mean parameters
-    cfg.pop_size = 128
-    cfg.max_iters = 101
+    learning_rate = 4.0
+    population_size = 128
     print(f"\nSeed: {cfg.seed}\n")
     start_training = time.time()
 
-    env = gym.make(cfg.env_name
-                   , continuous=cfg.continuous, enable_wind=False
-                   , max_episode_steps=cfg.max_ep_steps
-                   )
+    env = gym.make(
+        cfg.env_name,
+        continuous=cfg.continuous,
+        enable_wind=cfg.enable_wind,
+        max_episode_steps=cfg.max_episode_steps,
+    )
     try:
         observation_dim = env.observation_space.shape[0]
         action_dimension = env.action_space.shape[0]
         action_bound = env.action_space.high[0]
 
-        def init_params(key):
-            k1, k2 = jax.random.split(key, 2)
-            w1 = jax.random.normal(k1, (observation_dim, cfg.hidden)) * 0.1
-            b1 = jnp.zeros((cfg.hidden,))
-            w2 = jax.random.normal(k2, (cfg.hidden, action_dimension)) * 0.1
-            b2 = jnp.zeros((action_dimension,))
-            return dict(w1=w1, b1=b1, w2=w2, b2=b2)
-
         key = jax.random.key(cfg.seed)
         # Consume a separate initialization key before the training splits.
         key, init_key = jax.random.split(key)
-        params_dict = init_params(init_key)
+        params_dict = init_params(
+            init_key, observation_dim, action_dimension, cfg.hidden_size
+        )
         theta, unravel_fn = flatten_util.ravel_pytree(params_dict)
 
-        def _forward_step(flat_params, observation):
-            """Forward pass for a single observation using flattened parameters."""
-            # Reconstruct params tree
-            params_tree = unravel_fn(flat_params)
-            # Manually evaluate MLP
-            w1 = params_tree['w1']
-            b1 = params_tree['b1']
-            w2 = params_tree['w2']
-            b2 = params_tree['b2']
-            x = jnp.tanh(observation @ w1 + b1)
-            x = jnp.tanh(x @ w2 + b2)
+        # Bind per-run constants before tracing, as in the original closure.
+        forward_step = jax.jit(partial(
+            _forward_step, unravel_fn=unravel_fn, action_bound=action_bound
+        ))
 
-            return x * action_bound
+        parameter_dim = theta.size
+        sigma = cfg.sigma
 
-
-        forward_step = jax.jit(_forward_step)  # JIT compile for speed
-        
-        def cosine_similarity(g1, g2):
-            dot_product = jnp.dot(g1, g2)
-            norm_g1 = jnp.linalg.norm(g1)
-            norm_g2 = jnp.linalg.norm(g2)
-            
-            return dot_product / (norm_g1 * norm_g2 + 1e-8)
-
-
-        # policy update is performed before any parent/child launch
-        def run_episode(flat_params, random_state):
-            episode_over = False
-            cumulative_reward = 0.0
-            state, _ = env.reset(seed=random_state)
-            while not episode_over:
-                action = forward_step(flat_params, state)
-                state, reward, terminated, truncated, info = env.step(action)
-                # Update statistics
-                cumulative_reward += reward
-                # check if reached goal or timeLimit
-                episode_over = terminated or truncated
-            return cumulative_reward
-
-        PARAM_DIM = theta.size
-        sigma = cfg.sigma0
-        c_sigma = 2.0  # learning rate for sigma adaptation
-        velocity = jnp.zeros_like(theta)
-        momentum = 0.9  # momentum factor for velocity update
-
-        print(f"[TRAINING ZEROTH-ORDER OPTIMIZATION METHOD ON {cfg.env_name.upper()}]")
+        print(
+            f"[TRAINING ZEROTH-ORDER OPTIMIZATION METHOD "
+            f"ON {cfg.env_name.upper()}]"
+        )
         output_dir = Path("results")
         output_dir.mkdir(parents=True, exist_ok=True)
-        method = ("zeroth_order_sgd_orthogonal" if args.sampling == "orthogonal"
-                  else "zeroth_order_sgd")
+        method = (
+            "zeroth_order_sgd_orthogonal"
+            if args.sampling == "orthogonal" else "zeroth_order_sgd"
+        )
         output_path = output_dir / f"{method}_seed-{cfg.seed}.csv"
         with output_path.open("w", newline="") as result_file:
             writer = csv.writer(result_file)
@@ -149,61 +150,53 @@ def main(argv=None):
             for it in range(1, cfg.max_iters + 1):
                 key, eps_key, seed_key = jax.random.split(key, 3)
                 eps = sample_perturbations(
-                    eps_key, cfg.pop_size, PARAM_DIM, args.sampling
+                    eps_key, population_size, parameter_dim, args.sampling
                 )
-                random_state = jax.random.randint(seed_key, shape=(), minval=0, maxval=2**31 - 1).item()
+                random_state = jax.random.randint(
+                    seed_key, shape=(), minval=0, maxval=2**31 - 1
+                ).item()
 
                 rewards_pos = []
                 rewards_neg = []
-                # rewards_parent = []
-                for j in range(cfg.pop_size):
-                    rewards_pos.append(run_episode(theta + sigma * eps[j], random_state + j))
-                    rewards_neg.append(run_episode(theta - sigma * eps[j], random_state + j))
-                    # rewards_parent.append(run_episode(theta, random_state + j))
+                for j in range(population_size):
+                    rewards_pos.append(
+                        run_episode(
+                            theta + sigma * eps[j], random_state + j,
+                            env, forward_step,
+                        )
+                    )
+                    rewards_neg.append(
+                        run_episode(
+                            theta - sigma * eps[j], random_state + j,
+                            env, forward_step,
+                        )
+                    )
 
                 rewards_pos = jnp.asarray(rewards_pos)
                 rewards_neg = jnp.asarray(rewards_neg)
-                # rewards_parent = jnp.asarray(rewards_parent)
 
                 # Wierstra et al. (2014) fitness shaping
                 paired_rewards = jnp.stack([rewards_pos, rewards_neg], axis=1)
-                ranked_rewards = centered_ranks(paired_rewards) # * 2
+                ranked_rewards = centered_ranks(paired_rewards)
                 rank_difference = ranked_rewards[:, 0] - ranked_rewards[:, 1]
-                
-                # A_pos = 2 * centered_ranks(rewards_pos)
-                # A_neg = 2 * centered_ranks(rewards_neg)
-                # diff = A_pos - A_neg
 
-                # gradient_old = (diff.reshape(-1, 1) * eps).mean(axis=0) / sigma
+                gradient = (
+                    rank_difference[:, None] * eps
+                ).sum(axis=0) / paired_rewards.size
+                theta += learning_rate * gradient
 
-                gradient = (rank_difference[:, None] * eps).sum(axis=0) / paired_rewards.size
-                theta += cfg.lr * gradient  # shift θ in the direction of the gradient (SGD)
-
-                # velocity = momentum * velocity + (1 - momentum) * gradient
-                # theta += cfg.lr * velocity
-
-                # joint_update_norm = jnp.linalg.norm(gradient)
-                # old_update_norm = jnp.linalg.norm(gradient_old)
-                # print(f"Norm ratio = {old_update_norm / joint_update_norm:.4f}")
-                # print(f"Cosine similarity = {cosine_similarity(gradient, gradient_old):.4f}")
-
-                # parent policy performance
-                rewards = [run_episode(theta, seed) for seed in EVAL_SEEDS]
-                mean_r = onp.mean(rewards)
+                rewards = [
+                    run_episode(theta, seed, env, forward_step)
+                    for seed in cfg.eval_seeds
+                ]
+                mean_r = np.mean(rewards)
                 writer.writerow((it, mean_r))
 
                 if it % cfg.eval_every == 0 or it == 1:
-                    print(f"Iter {it:4d} | σ={sigma:.3f} |  Mean reward {mean_r:.1f} ± {onp.std(rewards):.1f}")
-
-                # # 1/5th success rule for σ adaptation
-                # success_rate = jnp.mean(jnp.concatenate([
-                #         rewards_pos > rewards_parent,
-                #         rewards_neg > rewards_parent,
-                #         ])
-                #     )
-                # sigma *= jnp.exp(
-                #         c_sigma * (success_rate - 0.2)
-                #     )
+                    print(
+                        f"Iter {it:4d} | σ={sigma:.3f} |  "
+                        f"Mean reward {mean_r:.1f} ± {np.std(rewards):.1f}"
+                    )
 
         print("\n[TRAINING FINISHED]")
         time_taken = format_elapsed_time(time.time() - start_training)

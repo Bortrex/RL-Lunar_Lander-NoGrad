@@ -7,23 +7,19 @@ from pathlib import Path
 
 @dataclass
 class Config:
+    """Shared settings for both zeroth-order experiments."""
+
     env_name: str = "LunarLander-v3"
-    exploration_type: str = "gaussian noise"
     continuous: bool = True
-    seed: int = 1234
-    hidden: int = 128
-    max_ep_steps: int = 500
-    pop_size: int = 128  
-
-    sigma0: float = 0.5  # initial exploration std
+    enable_wind: bool = False
+    hidden_size: int = 128
+    max_episode_steps: int = 500
+    sigma: float = 0.5  # Fixed perturbation standard deviation.
     max_iters: int = 101
-    eval_every: int = 5  # perform an evaluation on the parent policy
-    episode_average: int = 5  # deterministic eval episodes
-
-    lr: float = 0.5
-    sigma_decay: float = 0.999  # geometric decay
-    success_ratio: float = 0.5
-    beta: float = 0.4
+    eval_every: int = 5  # Evaluation runs every iteration.
+    seed: int = 1234
+    # Fixed benchmark scenarios, independent of the training seed.
+    eval_seeds: tuple[int, ...] = (1234, 1235, 1236, 1237, 1238)
 
 
 def format_elapsed_time(s):
@@ -70,8 +66,10 @@ def plot_learning_curves(results_dir="results", save_path=None, show=False):
                 try:
                     generation = int(row["generation"])
                     reward = float(row["reward"])
-                    if (None in row or generation < 1
-                            or generation in rewards or not np.isfinite(reward)):
+                    if (
+                        None in row or generation < 1
+                        or generation in rewards or not np.isfinite(reward)
+                    ):
                         raise ValueError
                 except (TypeError, ValueError) as error:
                     raise ValueError(
@@ -89,7 +87,9 @@ def plot_learning_curves(results_dir="results", save_path=None, show=False):
     for method, runs in methods.items():
         generations = sorted(next(iter(runs.values())))
         if any(sorted(run) != generations for run in runs.values()):
-            raise ValueError(f"{method}: mismatched generation sets across seeds")
+            raise ValueError(
+                f"{method}: mismatched generation sets across seeds"
+            )
         values = np.array([
             [run[generation] for generation in generations]
             for run in runs.values()
@@ -150,10 +150,18 @@ def plot_parallel_scaling():
     csv_path = Path("./results/adam_parallel_scaling.csv")
 
     fig, ax = plt.subplots(figsize=(9, 5.5), dpi=160)
-    ax.plot(workers, times_minutes, marker="o", linewidth=2, label="Measured runtime")
-    ax.plot(workers, ideal_minutes, linestyle="--", linewidth=1.5, label="Ideal linear scaling")
+    ax.plot(
+        workers, times_minutes, marker="o", linewidth=2,
+        label="Measured runtime",
+    )
+    ax.plot(
+        workers, ideal_minutes, linestyle="--", linewidth=1.5,
+        label="Ideal linear scaling",
+    )
 
-    for w, mins, s, secs in zip(workers, times_minutes, speedup, times_seconds):
+    for w, mins, s, secs in zip(
+        workers, times_minutes, speedup, times_seconds
+    ):
         m = secs // 60
         sec = secs % 60
         ax.annotate(
@@ -191,5 +199,5 @@ def plot_parallel_scaling():
 
 
 if __name__ == "__main__":
-    # plot_learning_curves(results_dir="results", save_path="docs/images/learning_curves.png", show=True)
-    plot_parallel_scaling()
+    plot_learning_curves(results_dir="results", save_path="docs/images/learning_curves.png", show=True)
+    # plot_parallel_scaling()
