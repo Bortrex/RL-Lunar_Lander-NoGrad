@@ -102,7 +102,7 @@ def plot_learning_curves(results_dir="results", save_path=None, show=False):
     colors = ("#0072B2", "#E69F00", "#009E73", "#CC79A7",
               "#D55E00", "#56B4E9", "#000000")
     for index, (method, generations, mean, std, count) in enumerate(summaries):
-        label = method.replace("_", " ").capitalize().replace("sgd", "SGD")
+        label = method.replace("_", " ").capitalize().replace("sgd", "SGD").replace("Ars", "ARS").replace("adam", "Adam")
         color = colors[index % len(colors)]
         ax.plot(generations, mean, color=color, linewidth=2.8,
                 label=f"{label} (n={count})")

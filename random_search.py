@@ -53,14 +53,14 @@ def _run(policy_and_seed):
 
 
 def main(argv=None):
-    """Train ARS and log fixed-benchmark evaluation after every update."""
+    """Train ARS V1 and log fixed-benchmark evaluation after every update."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--seed", type=int, default=Config.seed,
         help="training seed (default: %(default)s)",
     )
     parser.add_argument(
-        "--workers", type=int, default=min(4, mp.cpu_count()),
+        "--workers", type=int, default=min(8, mp.cpu_count()),
         help="parallel worker processes (default: %(default)s)",
     )
     # Experimental starting values.
@@ -69,12 +69,16 @@ def main(argv=None):
         help="directions per iteration (initial default: %(default)s)",
     )
     parser.add_argument(
-        "--noise-std", type=float, default=0.05,
+        "--noise-std", type=float, default=0.13,
         help="perturbation standard deviation (initial default: %(default)s)",
     )
     parser.add_argument(
-        "--step-size", type=float, default=0.0001,
+        "--step-size", type=float, default=0.2,
         help="finite-difference step size (initial default: %(default)s)",
+    )
+    parser.add_argument(
+        "--top-b", type=int, default=24,
+        help="number of top-performing directions to use (initial default: %(default)s)",
     )
     args = parser.parse_args(argv)
     if args.workers < 1 or args.directions < 1:
@@ -83,19 +87,24 @@ def main(argv=None):
         parser.error("--noise-std must be finite and positive")
     if not np.isfinite(args.step_size) or args.step_size <= 0:
         parser.error("--step-size must be finite and positive")
+    if not (1 <= args.top_b <= args.directions):
+        parser.error("--top-b must be a positive integer no larger than --directions")
 
     cfg.seed = args.seed
     workers = args.workers
     directions = args.directions
     noise_std = args.noise_std
     step_size = args.step_size
-    top_b = 16
-    print(
-        f"\nARS: seed={cfg.seed}, workers={workers}, directions={directions}, "
-        f"noise_std={noise_std}, step_size={step_size}, "
-        f"iterations={cfg.max_iters}\n"
-    )
+    top_b = args.top_b
 
+    type_ARS = "V1" if top_b == directions else "V1-t"  
+
+    print(
+        f"\nARS {type_ARS}: seed={cfg.seed}, workers={workers}, directions={directions}, "
+        f"noise_std={noise_std}, step_size={step_size}, "
+        f"iterations={cfg.max_iters}, top_b={top_b}\n"
+    )
+    
     try:
         start_training = time.time()
         key = jax.random.key(cfg.seed)
@@ -103,7 +112,7 @@ def main(argv=None):
         ctx = mp.get_context("spawn")
         output_dir = Path("results")
         output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = output_dir / f"basic_random_search_seed-{cfg.seed}-{step_size}.csv"
+        output_path = output_dir / f"ars_seed-{cfg.seed}.csv"
 
         with (
             output_path.open("w", newline="") as result_file,
@@ -168,7 +177,7 @@ def main(argv=None):
                     )
 
         elapsed = format_elapsed_time(time.time() - start_training)
-        print(f"\n[ARS TRAINING FINISHED IN {elapsed}]\n")
+        print(f"\n[ARS {type_ARS} TRAINING FINISHED IN {elapsed}]\n")
     finally:
         env.close()
 
