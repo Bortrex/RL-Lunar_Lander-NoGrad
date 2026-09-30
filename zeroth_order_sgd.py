@@ -1,5 +1,3 @@
-"""Fixed-sigma zeroth-order SGD with a deterministic evaluation benchmark."""
-
 import argparse
 import csv
 import time
