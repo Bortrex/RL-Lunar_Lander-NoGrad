@@ -73,11 +73,11 @@ def main(argv=None):
         help="perturbation standard deviation (initial default: %(default)s)",
     )
     parser.add_argument(
-        "--step-size", type=float, default=0.2,
+        "--step-size", type=float, default=0.25,
         help="finite-difference step size (initial default: %(default)s)",
     )
     parser.add_argument(
-        "--top-b", type=int, default=24,
+        "--top-b", type=int, default=20,
         help="number of top-performing directions to use (initial default: %(default)s)",
     )
     args = parser.parse_args(argv)
