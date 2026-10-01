@@ -1,5 +1,3 @@
-"""Population search with a fixed deterministic evaluation benchmark."""
-
 import argparse
 import csv
 from pathlib import Path

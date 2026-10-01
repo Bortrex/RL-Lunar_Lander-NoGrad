@@ -3,7 +3,7 @@
 Gradient-Free optimization methods are able to optimize a function without computing its gradient.
 In RL, this means that they allow to improve a policy without having to compute the gradient of its parameters.
 
-This project starts with a simple population-based method and then compares zeroth-order optimization using SGD and Adam. The Adam implementation also uses parallel rollouts to reduce training time.
+This project starts with a simple population-based method and then explores zeroth-order optimization with SGD and Adam, followed by Augmented Random Search (ARS) with a much simpler linear policy.
 
 ## Environment
 
@@ -81,13 +81,41 @@ Zeroth-order methods require many independent policy evaluations, which makes th
 <img src="docs/images/adam_parallel_scaling.png" width="800">
 </p>
 
+
+### Augmented Random Search (ARS)
+
+The ARS implementation follows the random-search approach of Mania et al.
+(2018). Instead of using a neural network (NN), the policy is a bias-free linear
+mapping from the 8-dimensional observation directly to the 2 continuous
+actions, giving only 16 trainable parameters.
+
+The final experiment uses $N=32$ sampled directions and retains the top-$b=20$ directions for the update, with exploration noise $\nu=0.13$ and step size $\alpha=0.25$. 
+
+#### Usage
+
+```bash
+# Default ARS V1-t run
+python random_search.py
+# Change the ARS search settings
+python random_search.py --directions 32 --top-b 24 --noise-std 0.13 --step-size 0.30 --workers 4
+```
+
 ## Experimental Settings
 
-| Method | Framework | Population | Update | Learning rate | Noise / perturbation | 
+<!-- | Method | Framework | Population | Update | Learning rate | Noise / perturbation | 
 |---|---|---:|---|---:|---:|
 | Population method | PyTorch | 40 policies | Selection + mutation | — | 0.1 | 
 | Zeroth-order SGD | JAX | 128 directions | SGD | 4.0 | σ = 0.5 | 
-| Zeroth-order Adam | JAX | 256 directions | Adam | 0.15 | σ = 0.5 | 
+| Zeroth-order Adam | JAX | 256 directions | Adam | 0.15 | σ = 0.5 |  -->
+
+| Method | Policy | Population | Update | Learning rate | Noise / Perturbation |
+|---|---|---:|---|---:|---:|
+| Population method | 8 → 128 → 2 NN | 40 policies | Selection + mutation | — | σ = 0.1 |
+| Zeroth-order SGD | 8 → 128 → 2 NN | 128 directions | SGD | 4.0 | σ = 0.5 |
+| Zeroth-order Adam | 8 → 128 → 2 NN | 256 directions | Adam | 0.15 | σ = 0.5 |
+| ARS V1-t | 8 → 2 linear  | 32 directions, top 20 | Reward-scaled + RS | 0.25 | ν = 0.13 |
+
+
 
 ## Results
 
@@ -99,8 +127,9 @@ The figure below shows the mean evaluation reward across independent training ru
 <img src="docs/images/learning_curves.png" width="900" height="500">
 </p>
 
-All three methods eventually reach the 200-point reward. Zeroth-order Adam improves the fastest and reaches the highest average reward, stabilizing close to 280. Zeroth-order SGD also reaches the benchmark reliably, but with more variation between iterations. The population method learns more slowly and remains more variable, but still reaches successful policies.
+All four methods eventually reach the 200-point reward. Zeroth-order Adam improves the fastest and reaches the highest average reward, stabilizing close to 280. Zeroth-order SGD also reaches the benchmark reliably, but with more variation between iterations. ARS improves more gradually but eventually stabilizes around ~255, with lower variation between runs toward the end of training. The population method learns more slowly and remains more variable, but still reaches successful policies.
 
+An important result is that ARS reaches competitive performance with a simple linear policy containing only 16 trainable parameters. It doesn't use any neural network hidden layer nor an optimizer. Its performance is sensitive to its hyperparameter values but the small policy and parallel runs make these values inexpensive to explore.
 
 ## References
 
@@ -123,6 +152,10 @@ All three methods eventually reach the 200-point reward. Zeroth-order Adam impro
   *The CMA Evolution Strategy: A Tutorial / Evolution Strategies overview.*
   Used as background when exploring step-size adaptation and the 1/5 success rule.
 
+- Mania, H., Guy, A., & Recht, B. (2018).
+  *Simple random search of static linear policies is competitive for reinforcement learning.*
+  Reference for Basic Random Search and the ARS variants, including reward
+  normalization, top-direction selection, and state normalization.
 
 ## License
 
