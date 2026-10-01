@@ -53,7 +53,7 @@ def _run(policy_and_seed):
 
 
 def main(argv=None):
-    """Train ARS V1 and log fixed-benchmark evaluation after every update."""
+    """Train ARS V1 or V1-t and log fixed-benchmark evaluations."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--seed", type=int, default=Config.seed,
@@ -150,19 +150,6 @@ def main(argv=None):
                 gradient = (reward_difference[:, None, None] * top_delta
                             ).sum(axis=0) / (top_b * reward_std)
                 
-                # reward_difference = rewards_pos - rewards_neg
-                # reward_std = np.std(
-                #         np.concatenate([rewards_pos, rewards_neg])
-                #     )
-                # # print(reward_std, directions * reward_std, directions * noise_std)
-                # # break
-                # # Use finite-difference factor 1 / noise_std.
-                # gradient = (
-                #     reward_difference[:, None, None] * delta
-                # # ).sum(axis=0) / (directions * noise_std)
-                # ).sum(axis=0) / (directions * reward_std)
-                # # ).sum(axis=0) / reward_std
-
                 policy += step_size * gradient
 
                 rewards = [
